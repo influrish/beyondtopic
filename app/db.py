@@ -3,7 +3,8 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(os.environ.get("BEYONDTOPIC_DB", ROOT / "data" / "beyondtopic.sqlite3"))
+DEFAULT_DB = Path("/tmp/beyondtopic.sqlite3") if os.environ.get("VERCEL") else ROOT / "data" / "beyondtopic.sqlite3"
+DB_PATH = Path(os.environ.get("BEYONDTOPIC_DB", DEFAULT_DB))
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;

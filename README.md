@@ -14,6 +14,12 @@ Open <http://127.0.0.1:8000/>. Publisher sign-in is at <http://127.0.0.1:8000/ad
 
 The app binds to `127.0.0.1` by default. Set `PORT` to choose a port. Only set `BEYONDTOPIC_HOST` when intentionally exposing the server. A public deployment also needs HTTPS, a production WSGI server, and a reverse proxy.
 
+## Vercel
+
+The repository includes a Vercel Python WSGI entry point and function asset configuration. Vercel serves the site from the project root; set `BEYONDTOPIC_URL`, `BEYONDTOPIC_SECRET`, `BEYONDTOPIC_ADMIN`, and `BEYONDTOPIC_PASSWORD` in the project environment before enabling publisher sign-in. Do not reuse the local signing key or local admin password.
+
+The local SQLite and upload directories are redirected to `/tmp` on Vercel so the demo site can render in serverless functions. Vercel's temporary filesystem is not durable or shared between function instances. Connect a managed database and persistent object storage before using the CMS for real publishing, subscribers, uploads, or advertising changes.
+
 ## Configuration and data
 
 - `BEYONDTOPIC_DB` chooses the database file; default: `data/beyondtopic.sqlite3`.

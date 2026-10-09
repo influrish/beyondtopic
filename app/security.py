@@ -4,7 +4,8 @@ from pathlib import Path
 def _secret():
     configured=os.environ.get('BEYONDTOPIC_SECRET')
     if configured:return configured.encode()
-    path=Path(os.environ.get('BEYONDTOPIC_SECRET_FILE',Path(__file__).resolve().parent.parent/'data'/'.signing-key'))
+    default_path=Path('/tmp/beyondtopic-signing-key') if os.environ.get('VERCEL') else Path(__file__).resolve().parent.parent/'data'/'.signing-key'
+    path=Path(os.environ.get('BEYONDTOPIC_SECRET_FILE',default_path))
     path.parent.mkdir(parents=True,exist_ok=True)
     try: value=path.read_bytes()
     except FileNotFoundError:

@@ -11,9 +11,11 @@ from . import db as database
 from .security import sign, unsign, password_hash, verify_password, fingerprint
 
 ROOT = Path(__file__).resolve().parent.parent
-MEDIA_DIR = ROOT / 'data' / 'media'
+MEDIA_DIR = Path(os.environ.get('BEYONDTOPIC_MEDIA_DIR', '/tmp/beyondtopic-media' if os.environ.get('VERCEL') else ROOT / 'data' / 'media'))
 STATUS = ['draft','pending_review','scheduled','published','archived','trashed']
 ASSET_VERSION = '20261009.20'
+_site_data_ready = False
+_site_data_lock = threading.Lock()
 
 def esc(v): return html.escape(str(v if v is not None else ''), quote=True)
 def slugify(v): return re.sub(r'[^a-z0-9]+','-',str(v or '').lower()).strip('-') or secrets.token_hex(4)
@@ -78,6 +80,12 @@ def render(start,title,content,admin=False,status='200 OK',description=None,csrf
     return response(start,layout(title,content,admin,description or 'BeyondTopic — thoughtful stories for curious lives.',csrf,canonical=canonical,noindex=noindex,social_image=social_image),status)
 
 def app(environ,start_response):
+    global _site_data_ready
+    if os.environ.get('VERCEL') and not _site_data_ready:
+        with _site_data_lock:
+            if not _site_data_ready:
+                initialize_site_data()
+                _site_data_ready=True
     path=decode_path(environ.get('PATH_INFO','/')); method=environ.get('REQUEST_METHOD','GET').upper(); query=parse_qs(environ.get('QUERY_STRING',''))
     jar=cookies.SimpleCookie(environ.get('HTTP_COOKIE','')); db=database.connect(); set_cookie=[]
     public_token=unsign(jar['bt_public_csrf'].value) if 'bt_public_csrf' in jar else None
@@ -102,7 +110,7 @@ def app(environ,start_response):
         footer_pages=db.execute("select title,slug from pages where status='published' order by title").fetchall()
         site={x['key'].split('.',1)[1]:x['value'] for x in db.execute("select * from settings where key like 'site.%'")}
         seo_base=db.execute("select value from settings where key='seo.canonical_base'").fetchone()
-        site_url=(seo_base['value'].rstrip('/') if seo_base and seo_base['value'] else os.environ.get('BEYONDTOPIC_URL','http://localhost:8000').rstrip('/'))
+        site_url=(seo_base['value'].rstrip('/') if seo_base and seo_base['value'] else os.environ.get('BEYONDTOPIC_URL','https://beyondtopic.vercel.app' if os.environ.get('VERCEL') else 'http://localhost:8000').rstrip('/'))
         return response(start_response,layout(title,body,admin,description or site.get('tagline','BeyondTopic — thoughtful stories for curious lives.'),csrf,links,site.get('site_title',site.get('title','BeyondTopic')),site.get('tagline','Explore More. Discover Beyond.'),canonical,noindex,social_image,footer_categories,footer_pages,user['role'] if admin and user else None,site_url,site.get('contact_email','')),status,headers)
     def values():
         typ=environ.get('CONTENT_TYPE','')
@@ -933,12 +941,14 @@ def admin_subscribers(db,page):
     return page('Subscribers','<p class="eyebrow">AUDIENCE</p><h1>Newsletter subscribers</h1><p>Email delivery requires a provider; consent, subscription status, and unsubscribe requests are stored locally.</p><p><a class="button" href="/admin/subscribers/export.csv">Export CSV</a></p>'+table(['Email','Status','Consent recorded','Joined'],[[esc(x['email']),esc(x['status']),esc(x['consent_at'] or '—'),esc(x['created_at'])] for x in rows]),True)
 def audit_view(db,limit=10):return table(['User','Action','Detail','Time'],[[esc(x['username']),esc(x['action']),esc(x['detail']),esc(x['created_at'])] for x in db.execute('select * from audit_logs order by id desc limit ?',(limit,))])
 
-def main():
+def initialize_site_data():
     database.initialize()
     with database.connect() as db:
         if not db.execute('select id from users limit 1').fetchone():
             username=os.environ.get('BEYONDTOPIC_ADMIN','admin'); password=os.environ.get('BEYONDTOPIC_PASSWORD')
-            if not password: password=secrets.token_urlsafe(18); print(f'First-run admin password: {password}')
+            if not password:
+                password=secrets.token_urlsafe(18)
+                if not os.environ.get('VERCEL'):print(f'First-run admin password: {password}')
             db.execute('insert into users(username,password_hash,role) values(?,?,?)',(username,password_hash(password),'admin'))
         if not db.execute('select id from authors limit 1').fetchone():db.execute("insert into authors(name,slug,bio) values('BeyondTopic Editors','editors','Independent editors exploring what matters.')")
         seeds={'Fashion':['Trends','Outfit Ideas','Seasonal Fashion','Accessories','Footwear','Shopping Guides'],'Lifestyle':['Daily Living','Relationships','Personal Development','Home and Living','Entertainment','Culture'],'Travel':['Destinations','Travel Guides','Hotels and Resorts','Budget Travel','Luxury Travel','Travel Tips','Itineraries'],'Beauty':['Skincare','Haircare','Makeup','Beauty Products','Beauty Guides'],'Shopping':['Buying Guides','Product Comparisons','Best Products','Seasonal Shopping','Gift Guides','Deals and Offers'],'Technology':['Gadgets','Apps and Software','Consumer Technology','Product Reviews','How-to Guides'],'Wellness':['Fitness','Everyday Wellness','Healthy Habits']}
@@ -1066,6 +1076,8 @@ The publisher may revise these terms as the publication changes. Updated terms w
             db.execute("update posts set published_at=date('now','-'||(1+abs(random()%90))||' days')||' '||printf('%02d:%02d:00',9+abs(random()%9),abs(random()%60)) where status='published' and is_sample=1")
             db.execute("insert into settings(key,value) values('demo_published_dates_version','1')")
             db.commit()
+def main():
+    initialize_site_data()
     threading.Thread(target=scheduler,daemon=True,name='scheduled-publisher').start()
     host=os.environ.get('BEYONDTOPIC_HOST','127.0.0.1');port=int(os.environ.get('PORT','8000'))
     print(f'BeyondTopic ready at http://{host}:{port}/')
