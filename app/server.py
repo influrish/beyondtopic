@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, quote, urlencode
 from wsgiref.simple_server import make_server
 from . import db as database
-from .security import sign, unsign, password_hash, verify_password, fingerprint
+from .security import sign, unsign, password_hash, verify_password, fingerprint, session_stamp, deterministic_password_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA_DIR = Path(os.environ.get('BEYONDTOPIC_MEDIA_DIR', '/tmp/beyondtopic-media' if os.environ.get('VERCEL') else ROOT / 'data' / 'media'))
@@ -95,9 +95,14 @@ def app(environ,start_response):
     sid=unsign(jar['bt_session'].value) if 'bt_session' in jar else None
     user=None
     if sid:
-        found=db.execute('select u.*,s.expires_at from sessions s join users u on u.id=s.user_id where s.id=?',(sid,)).fetchone()
-        if found and found['expires_at']>int(time.time()): user=found
-        else: sid=None
+        parts=sid.split(':',2)
+        if len(parts)==3:
+            try: uid,expiry=int(parts[0]),int(parts[1])
+            except (ValueError,TypeError): uid,expiry=None,0
+            if uid and expiry>int(time.time()):
+                candidate=db.execute('select * from users where id=?',(uid,)).fetchone()
+                if candidate and session_stamp(candidate['password_hash'])==parts[2]: user=candidate
+        if not user: sid=None
     csrf=csrf_for(sid) if sid else ''
     def go(url,status='303 See Other',headers=None): return response(start_response,'',status,[('Location',url)]+(headers or []))
     def page(title,body,admin=bool(user),status='200 OK',description=None,canonical='',noindex=False,social_image=''):
@@ -144,8 +149,7 @@ def app(environ,start_response):
                 row=db.execute('select * from users where username=?',(f.get('username',''),)).fetchone()
                 db.execute('insert into auth_attempts(fingerprint,succeeded) values(?,?)',(addr,int(bool(row and verify_password(f.get('password',''),row['password_hash'])))));db.commit()
                 if row and verify_password(f.get('password',''),row['password_hash']):
-                    newsid=secrets.token_urlsafe(32); expiry=int(time.time())+8*3600
-                    db.execute('insert into sessions(id,user_id,expires_at) values(?,?,?)',(newsid,row['id'],expiry)); db.commit()
+                    expiry=int(time.time())+8*3600; newsid=f'{row["id"]}:{expiry}:{session_stamp(row["password_hash"])}'
                     return go('/admin',headers=[('Set-Cookie',f'bt_session={sign(newsid)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800; Secure' if environ.get('wsgi.url_scheme')=='https' else f'bt_session={sign(newsid)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800')])
                 return login_page(start_response,'Login was not accepted.','401 Unauthorized',cookie)
             login_cookie=sign(token)
@@ -157,7 +161,6 @@ def app(environ,start_response):
                 if not valid_csrf(f,csrf): return page('Invalid form token','<h1>Form expired</h1><p>Reload the page before submitting again.</p>',True,'403 Forbidden')
             else: f={}
             if path=='/admin/logout' and method=='POST':
-                db.execute('delete from sessions where id=?',(sid,)); db.commit()
                 return go('/admin/login',headers=[('Set-Cookie','bt_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax')])
             if user['role'] not in ('admin','editor','author','contributor','seo_manager','affiliate_manager'): return page('Access denied','<h1>Access denied</h1>',True,'403 Forbidden')
             if user['role'] in ('author','contributor') and not (path.startswith('/admin/posts') or path=='/admin/media' or path=='/admin/logout'):
@@ -946,10 +949,13 @@ def initialize_site_data():
     with database.connect() as db:
         if not db.execute('select id from users limit 1').fetchone():
             username=os.environ.get('BEYONDTOPIC_ADMIN','admin'); password=os.environ.get('BEYONDTOPIC_PASSWORD')
-            if not password:
+            if password:
+                hashed=deterministic_password_hash(username,password)
+            else:
                 password=secrets.token_urlsafe(18)
                 if not os.environ.get('VERCEL'):print(f'First-run admin password: {password}')
-            db.execute('insert into users(username,password_hash,role) values(?,?,?)',(username,password_hash(password),'admin'))
+                hashed=password_hash(password)
+            db.execute('insert into users(username,password_hash,role) values(?,?,?)',(username,hashed,'admin'))
         if not db.execute('select id from authors limit 1').fetchone():db.execute("insert into authors(name,slug,bio) values('BeyondTopic Editors','editors','Independent editors exploring what matters.')")
         seeds={'Fashion':['Trends','Outfit Ideas','Seasonal Fashion','Accessories','Footwear','Shopping Guides'],'Lifestyle':['Daily Living','Relationships','Personal Development','Home and Living','Entertainment','Culture'],'Travel':['Destinations','Travel Guides','Hotels and Resorts','Budget Travel','Luxury Travel','Travel Tips','Itineraries'],'Beauty':['Skincare','Haircare','Makeup','Beauty Products','Beauty Guides'],'Shopping':['Buying Guides','Product Comparisons','Best Products','Seasonal Shopping','Gift Guides','Deals and Offers'],'Technology':['Gadgets','Apps and Software','Consumer Technology','Product Reviews','How-to Guides'],'Wellness':['Fitness','Everyday Wellness','Healthy Habits']}
         for name,children in seeds.items():

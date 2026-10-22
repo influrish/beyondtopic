@@ -36,6 +36,18 @@ def sign(value):
 def fingerprint(value):
     return hmac.new(_secret(),value.encode(),hashlib.sha256).hexdigest()
 
+def session_stamp(password_hash_value):
+    return hashlib.sha256(password_hash_value.encode()).hexdigest()[:16]
+
+def deterministic_password_hash(identity, password):
+    # Used only for the env-var-provisioned bootstrap admin: on serverless
+    # platforms each instance independently creates this user on first run,
+    # and a random salt would make the resulting password_hash (and any
+    # session derived from it) differ between instances despite an identical
+    # username/password. A salt fixed by identity keeps it reproducible.
+    salt = hashlib.sha256(f'beyondtopic-bootstrap:{identity}'.encode()).hexdigest()[:32]
+    return password_hash(password, salt)
+
 def unsign(value):
     if not value or '.' not in value: return None
     raw, mac = value.rsplit('.', 1)

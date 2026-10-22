@@ -128,14 +128,14 @@ class PlatformTest(unittest.TestCase):
 
     def test_author_role_is_limited_to_editorial_content(self):
         from app.server import app
-        from app.security import sign
+        from app.security import sign, session_stamp
         from io import BytesIO
         with self.db.connect() as conn:
             conn.execute("insert into authors(name,slug) values('Writer','writer')")
             conn.execute("insert into users(username,password_hash,role,author_id) values('writer',?,'author',1)",("unused",))
             uid=conn.execute("select id from users where username='writer'").fetchone()[0]
-            conn.execute("insert into sessions(id,user_id,expires_at) values('author-session',?,9999999999)",(uid,));conn.commit()
-        env={'PATH_INFO':'/admin/settings','REQUEST_METHOD':'GET','QUERY_STRING':'','HTTP_COOKIE':'bt_session='+sign('author-session'),'CONTENT_TYPE':'','CONTENT_LENGTH':'0','wsgi.input':BytesIO(b''),'wsgi.url_scheme':'http'}
+        token=f'{uid}:9999999999:{session_stamp("unused")}'
+        env={'PATH_INFO':'/admin/settings','REQUEST_METHOD':'GET','QUERY_STRING':'','HTTP_COOKIE':'bt_session='+sign(token),'CONTENT_TYPE':'','CONTENT_LENGTH':'0','wsgi.input':BytesIO(b''),'wsgi.url_scheme':'http'}
         result={};b''.join(app(env,lambda status,headers:result.update(status=status,headers=headers)))
         self.assertEqual(result['status'],'403 Forbidden')
 
@@ -180,10 +180,10 @@ class PlatformTest(unittest.TestCase):
                 conn.execute('insert into users(username,password_hash,role,author_id) values(?,?,?,?)',(name,'unused',role,1 if role=='contributor' else None))
             conn.execute('update users set author_id=1 where username=?',('contributor_user',))
             conn.commit()
+        from app.security import session_stamp
         def request(username,path):
             with self.db.connect() as conn:user=conn.execute('select id from users where username=?',(username,)).fetchone()
-            cookie=sign(username+'-session')
-            with self.db.connect() as conn:conn.execute('insert or ignore into sessions(id,user_id,expires_at) values(?,?,9999999999)',(username+'-session',user['id']))
+            cookie=sign(f'{user["id"]}:9999999999:{session_stamp("unused")}')
             result={};env={'PATH_INFO':path,'REQUEST_METHOD':'GET','QUERY_STRING':'','HTTP_COOKIE':'bt_session='+cookie,'CONTENT_TYPE':'','CONTENT_LENGTH':'0','wsgi.input':BytesIO(b''),'wsgi.url_scheme':'http'}
             b''.join(app(env,lambda status,headers:result.update(status=status,headers=headers)))
             return result['status']
@@ -196,15 +196,16 @@ class PlatformTest(unittest.TestCase):
 
     def test_homepage_sections_can_be_added_reordered_and_disabled(self):
         from app.server import app, csrf_for
-        from app.security import sign, password_hash
+        from app.security import sign, password_hash, session_stamp
         from io import BytesIO
+        hashed=password_hash('test-password-long-enough')
         with self.db.connect() as conn:
-            conn.execute("insert into users(username,password_hash,role) values('publisher',?,'admin')",(password_hash('test-password-long-enough'),))
+            conn.execute("insert into users(username,password_hash,role) values('publisher',?,'admin')",(hashed,))
             conn.execute("insert into categories(name,slug) values('Fashion','fashion')")
             conn.execute("insert into categories(name,slug) values('Travel','travel')")
             uid=conn.execute("select id from users where username='publisher'").fetchone()[0]
-            conn.execute('insert into sessions(id,user_id,expires_at) values(?,?,9999999999)',('studio-session',uid))
-        cookie='bt_session='+sign('studio-session');csrf=csrf_for('studio-session')
+        token=f'{uid}:9999999999:{session_stamp(hashed)}'
+        cookie='bt_session='+sign(token);csrf=csrf_for(token)
         def request(path,method='GET',data=None):
             encoded=urllib.parse.urlencode(data or {}).encode();url=urllib.parse.urlsplit(path);result={}
             env={'PATH_INFO':url.path,'REQUEST_METHOD':method,'QUERY_STRING':url.query,'HTTP_COOKIE':cookie,'CONTENT_TYPE':'application/x-www-form-urlencoded','CONTENT_LENGTH':str(len(encoded)),'wsgi.input':BytesIO(encoded),'wsgi.url_scheme':'http'}
@@ -223,16 +224,16 @@ class PlatformTest(unittest.TestCase):
 
     def test_author_profile_media_photo_shows_on_public_byline(self):
         from app.server import app, csrf_for
-        from app.security import sign, password_hash
+        from app.security import sign, password_hash, session_stamp
         from io import BytesIO
+        hashed=password_hash('test-password-long-enough')
         with self.db.connect() as conn:
-            conn.execute("insert into users(username,password_hash,role) values('publisher',?,'admin')",(password_hash('test-password-long-enough'),))
+            conn.execute("insert into users(username,password_hash,role) values('publisher',?,'admin')",(hashed,))
             conn.execute("insert into authors(name,slug,bio) values('Writer','writer','A thoughtful writer.')")
             conn.execute("insert into categories(name,slug) values('Travel','travel')")
             conn.execute("insert into media(filename,alt,mime_type,size) values('portrait.jpg','Writer portrait','image/jpeg',100)")
             uid=conn.execute("select id from users where username='publisher'").fetchone()[0]
-            conn.execute('insert into sessions(id,user_id,expires_at) values(?,?,9999999999)',('author-photo-session',uid))
-        sid='author-photo-session';cookie='bt_session='+sign(sid);csrf=csrf_for(sid)
+        sid=f'{uid}:9999999999:{session_stamp(hashed)}';cookie='bt_session='+sign(sid);csrf=csrf_for(sid)
         def request(path,method='GET',data=None,authenticated=False):
             encoded=urllib.parse.urlencode(data or {}).encode();url=urllib.parse.urlsplit(path);result={}
             env={'PATH_INFO':url.path,'REQUEST_METHOD':method,'QUERY_STRING':url.query,'HTTP_COOKIE':cookie if authenticated else '', 'CONTENT_TYPE':'application/x-www-form-urlencoded','CONTENT_LENGTH':str(len(encoded)),'wsgi.input':BytesIO(encoded),'wsgi.url_scheme':'http'}
