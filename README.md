@@ -1,6 +1,6 @@
 # BeyondTopic
 
-BeyondTopic is an independent, multi-topic editorial publication with a connected publisher studio. The public site and CMS use the same SQLite database. The project uses Python 3.9+, WSGI, and SQLite without third-party Python packages.
+BeyondTopic is an independent, multi-topic editorial publication with a connected publisher studio. The public site and CMS use the same SQLite-compatible database. The project uses Python 3.12, WSGI, and SQLite with no third-party packages required for local use; `libsql-client` is an optional dependency used only when a persistent Turso database is configured (see "Persistent database" below).
 
 ## Run locally
 
@@ -16,17 +16,31 @@ The app binds to `127.0.0.1` by default. Set `PORT` to choose a port. Only set `
 
 ## Vercel
 
-The repository includes a Vercel Python WSGI entry point and function asset configuration. Vercel serves the site from the project root; set `BEYONDTOPIC_URL`, `BEYONDTOPIC_SECRET`, `BEYONDTOPIC_ADMIN`, and `BEYONDTOPIC_PASSWORD` in the project environment before enabling publisher sign-in. Do not reuse the local signing key or local admin password.
+The repository deploys as a single Python Serverless Function at `api/index.py`, which exposes the existing WSGI `app` from `app/server.py`. `vercel.json` rewrites every path to that function. Set `BEYONDTOPIC_URL`, `BEYONDTOPIC_SECRET`, `BEYONDTOPIC_ADMIN`, and `BEYONDTOPIC_PASSWORD` as private Vercel project environment variables before enabling publisher sign-in. Do not reuse the local signing key or local admin password.
 
-The local SQLite and upload directories are redirected to `/tmp` on Vercel so the demo site can render in serverless functions. Vercel's temporary filesystem is not durable or shared between function instances. Connect a managed database and persistent object storage before using the CMS for real publishing, subscribers, uploads, or advertising changes.
+`BEYONDTOPIC_SECRET` especially must be set on Vercel: without it, each serverless instance falls back to writing its own random signing key to `/tmp`, which is not shared between instances and causes sessions/CSRF tokens signed by one instance to fail verification on another.
+
+### Persistent database (Turso)
+
+Local SQLite still works out of the box for local development. On Vercel, without further configuration, the database is redirected to `/tmp`, which is wiped on every cold start and not shared between function instances — fine for a demo, not for real publishing.
+
+To persist data in production, this app can connect to [Turso](https://turso.tech), a managed, SQLite-compatible database that needs no SQL rewrites (same schema, same `?` placeholders, same SQL functions):
+
+1. Create a Turso database (via the Turso dashboard or `turso db create beyondtopic`).
+2. Get its connection URL (`turso db show beyondtopic --url`, looks like `libsql://beyondtopic-<org>.turso.io`) and an auth token (`turso db tokens create beyondtopic`).
+3. In the Vercel project, add `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` as private environment variables.
+4. Redeploy. `app/db.py` automatically uses Turso when `TURSO_DATABASE_URL` is set, and falls back to local SQLite otherwise — no code changes needed per environment.
+
+Uploaded media (images) are still written to local/`/tmp` storage only and are **not yet** persisted to an object store. Treat media uploads on Vercel as temporary until object storage (e.g. Vercel Blob) is wired up.
 
 ## Configuration and data
 
-- `BEYONDTOPIC_DB` chooses the database file; default: `data/beyondtopic.sqlite3`.
-- `BEYONDTOPIC_SECRET` supplies the session and preview signing key. Without it, the first run creates `data/.signing-key` with owner-only file permissions.
+- `BEYONDTOPIC_DB` chooses the local database file; default: `data/beyondtopic.sqlite3`. Ignored when `TURSO_DATABASE_URL` is set.
+- `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` point the app at a persistent Turso database instead of local SQLite. See "Persistent database" above.
+- `BEYONDTOPIC_SECRET` supplies the session and preview signing key. Without it, the first run creates `data/.signing-key` with owner-only file permissions (or a `/tmp` key on Vercel — not durable; set this explicitly in production).
 - `BEYONDTOPIC_URL` sets the canonical site URL used in SEO and sitemap output.
 - `BEYONDTOPIC_TIMEZONE` sets the scheduling timezone; default: `Asia/Kolkata`.
-- Uploaded media and the SQLite database are stored under `data/`, which is ignored by Git.
+- Uploaded media and the local SQLite database are stored under `data/`, which is ignored by Git.
 
 Back up both database and uploads with `python3 scripts/backup.py`. Check the backup and restore process before relying on it.
 

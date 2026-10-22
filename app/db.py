@@ -3,8 +3,10 @@ import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 DEFAULT_DB = Path("/tmp/beyondtopic.sqlite3") if os.environ.get("VERCEL") else ROOT / "data" / "beyondtopic.sqlite3"
-DB_PATH = Path(os.environ.get("BEYONDTOPIC_DB", DEFAULT_DB))
+DB_PATH = TURSO_URL if TURSO_URL else Path(os.environ.get("BEYONDTOPIC_DB", DEFAULT_DB))
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -32,6 +34,9 @@ CREATE TABLE IF NOT EXISTS auth_attempts(id INTEGER PRIMARY KEY, fingerprint TEX
 """
 
 def connect():
+    if TURSO_URL:
+        from . import turso
+        return turso.connect(TURSO_URL, TURSO_TOKEN)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
