@@ -40,6 +40,7 @@ Uploaded media (images) are still written to local/`/tmp` storage only and are *
 - `BEYONDTOPIC_SECRET` supplies the session and preview signing key. Without it, the first run creates `data/.signing-key` with owner-only file permissions (or a `/tmp` key on Vercel — not durable; set this explicitly in production).
 - `BEYONDTOPIC_URL` sets the canonical site URL used in SEO and sitemap output.
 - `BEYONDTOPIC_TIMEZONE` sets the scheduling timezone; default: `Asia/Kolkata`.
+- `BEYONDTOPIC_GA4_ID` enables Google Analytics 4 by adding the gtag.js snippet to public pages, using this Measurement ID (e.g. `G-XXXXXXXXXX`). Admin/Studio pages are excluded. Unset by default (no analytics).
 - Uploaded media and the local SQLite database are stored under `data/`, which is ignored by Git.
 
 Back up both database and uploads with `python3 scripts/backup.py`. Check the backup and restore process before relying on it.
