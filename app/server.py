@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 MEDIA_DIR = Path(os.environ.get('BEYONDTOPIC_MEDIA_DIR', '/tmp/beyondtopic-media' if os.environ.get('VERCEL') else ROOT / 'data' / 'media'))
 STATUS = ['draft','pending_review','scheduled','published','archived','trashed']
 ASSET_VERSION = '20261009.20'
+DEFAULT_GA4_ID = 'G-N2YX35JHM0'
 _site_data_ready = False
 _site_data_lock = threading.Lock()
 
@@ -68,7 +69,7 @@ def layout(title, body, admin=False, description='BeyondTopic — thoughtful sto
     contact=f'<a class="footer-contact" href="mailto:{esc(contact_email)}">{esc(contact_email)}</a>' if contact_email else ''
     footer=f'<footer class="site-footer"><div class="footer-brand"><a href="/">{esc(site_title)}</a><p>{esc(tagline)}</p><span>An independent journal for curious lives.</span>{contact}</div><div class="footer-col"><b>Explore</b>{cats}<a href="/blog">All stories</a></div><div class="footer-col"><b>About</b>{about_pages}<a href="/admin/login">Publisher sign in</a></div><div class="footer-col"><b>Policies</b>{legal_pages}</div><div class="footer-bottom">© {datetime.now().year} {esc(site_title)} <span>Thoughtfully made for curious lives.</span></div></footer>'
     script=f'<script src="/static/editor.js?v={ASSET_VERSION}" defer></script>'
-    ga4_id=os.environ.get('BEYONDTOPIC_GA4_ID','')
+    ga4_id=os.environ.get('BEYONDTOPIC_GA4_ID',(DEFAULT_GA4_ID if os.environ.get('VERCEL') else ''))
     analytics_tag=f'<script async src="https://www.googletagmanager.com/gtag/js?id={ga4_id}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){{dataLayer.push(arguments);}}gtag("js",new Date());gtag("config","{ga4_id}");</script>' if (ga4_id and not admin) else ''
     return f'<!doctype html><html lang="en"><head><meta charset="utf-8">{analytics_tag}<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f8f7f3"><meta name="description" content="{esc(description)}">{canonical_tag}{robot_tag}<meta property="og:site_name" content="{esc(site_title)}"><meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(description)}"><meta name="twitter:card" content="summary_large_image">{image_tag}{schema_tag}<title>{esc(title)} · {esc(site_title)}</title><link rel="icon" href="/static/favicon.svg?v={ASSET_VERSION}" type="image/svg+xml"><link rel="stylesheet" href="/static/site.css?v={ASSET_VERSION}"></head><body class="{"admin" if admin else "public"}"><a class="skip-link" href="#main-content">Skip to content</a><header>{nav}</header><main id="main-content">{body}</main>{footer}{script}</body></html>'
 
@@ -220,7 +221,8 @@ def _handle_request(environ,start_response):
             if path=='/admin/subscribers': return admin_subscribers(db,page)
             if path=='/admin/activity': return page('Activity log','<h1>Activity log</h1>'+audit_view(db,100),True)
             if path=='/admin/analytics':
-                ga4_status=f'Google Analytics 4 is active (Measurement ID {esc(os.environ.get("BEYONDTOPIC_GA4_ID"))}). Visitor reports are available in Google Analytics, not in this dashboard.' if os.environ.get('BEYONDTOPIC_GA4_ID') else 'No analytics provider is configured. Set BEYONDTOPIC_GA4_ID to enable Google Analytics 4 tracking on public pages.'
+                active_ga4_id=os.environ.get('BEYONDTOPIC_GA4_ID',(DEFAULT_GA4_ID if os.environ.get('VERCEL') else ''))
+                ga4_status=f'Google Analytics 4 is active (Measurement ID {esc(active_ga4_id)}). Visitor reports are available in Google Analytics, not in this dashboard.' if active_ga4_id else 'No analytics provider is configured. Set BEYONDTOPIC_GA4_ID to enable Google Analytics 4 tracking on public pages.'
                 return page('Analytics',f'<h1>Analytics</h1><p>{ga4_status}</p>',True)
             if path=='/admin/seo': return manage_settings(db,method,f,csrf,page,go,audit,'seo')
             if path=='/admin/settings': return manage_settings(db,method,f,csrf,page,go,audit,'site')
