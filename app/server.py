@@ -80,6 +80,14 @@ def render(start,title,content,admin=False,status='200 OK',description=None,csrf
     return response(start,layout(title,content,admin,description or 'BeyondTopic — thoughtful stories for curious lives.',csrf,canonical=canonical,noindex=noindex,social_image=social_image),status)
 
 def app(environ,start_response):
+    try:
+        return _handle_request(environ,start_response)
+    except Exception:
+        body=b'<!doctype html><html><head><meta charset="utf-8"><title>Service temporarily unavailable</title></head><body><h1>Service temporarily unavailable</h1><p>Please try again in a moment.</p></body></html>'
+        start_response('503 Service Unavailable',[('Content-Type','text/html; charset=utf-8'),('Cache-Control','no-store')])
+        return [body]
+
+def _handle_request(environ,start_response):
     global _site_data_ready
     if os.environ.get('VERCEL') and not _site_data_ready:
         with _site_data_lock:

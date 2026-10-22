@@ -2,6 +2,4 @@
 name = "beyondtopic"
 version = "1.0.0"
 requires-python = ">=3.12,<3.13"
-dependencies = [
-    "libsql-client==0.3.1",
-]
+dependencies = []
