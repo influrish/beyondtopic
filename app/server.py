@@ -1082,7 +1082,8 @@ The publisher may revise these terms as the publication changes. Updated terms w
             db.execute("update posts set published_at=date('now','-'||(1+abs(random()%90))||' days')||' '||printf('%02d:%02d:00',9+abs(random()%9),abs(random()%60)) where status='published' and is_sample=1")
             db.execute("insert into settings(key,value) values('demo_published_dates_version','1')")
             db.commit()
-        if not db.execute("select value from settings where key='real_content_seed_version'").fetchone():
+        _real_seed_row=db.execute("select value from settings where key='real_content_seed_version'").fetchone()
+        if not _real_seed_row or _real_seed_row['value']<'2':
             from .real_content import ARTICLES
             authors_by_category={
                 'fashion':('Mara Chen','mara-chen','Fashion and beauty editor covering style, textiles, and the business behind what we wear.','Fashion & Beauty Editor'),
@@ -1127,7 +1128,7 @@ The publisher may revise these terms as the publication changes. Updated terms w
                         tag_id=db.execute('select id from tags where slug=?',(tag_slug,)).fetchone()['id']
                         db.execute('insert or ignore into post_tags(post_id,tag_id) values(?,?)',(post_row['id'],tag_id))
             db.execute("update posts set status='draft' where is_sample=1 and status='published'")
-            db.execute("insert into settings(key,value) values('real_content_seed_version','1')")
+            db.execute("insert into settings(key,value) values('real_content_seed_version','2') on conflict(key) do update set value=excluded.value")
             db.commit()
 def main():
     initialize_site_data()
