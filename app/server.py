@@ -1120,53 +1120,9 @@ The publisher may revise these terms as the publication changes. Updated terms w
                         db.execute('insert or ignore into tags(name,slug) values(?,?)',(tag_name,tag_slug))
                         tag_id=db.execute('select id from tags where slug=?',(tag_slug,)).fetchone()['id']
                         db.execute('insert or ignore into post_tags(post_id,tag_id) values(?,?)',(post_row['id'],tag_id))
-            db.execute("insert into settings(key,value) values('real_content_seed_version','1')")
-            db.commit()
-        if not db.execute("select value from settings where key='real_content_seed_version'").fetchone():
-            seed_real_articles(db)
             db.execute("update posts set status='draft' where is_sample=1 and status='published'")
             db.execute("insert into settings(key,value) values('real_content_seed_version','1')")
             db.commit()
-def seed_real_articles(db):
-    from .real_content import ARTICLES
-    staff=[('Maya Chen','maya-chen','Maya covers fashion and beauty, with a focus on wardrobes and routines people can actually keep up with.','Style Editor'),
-           ('Daniel Reyes','daniel-reyes','Daniel writes about travel and consumer technology, drawing on years spent testing gear in the field.','Contributing Editor'),
-           ('Priya Nair','priya-nair','Priya focuses on wellness and everyday living, turning research into routines that hold up on busy weeks.','Wellness Editor'),
-           ('Owen Fischer','owen-fischer','Owen covers shopping and technology, specializing in buying guides that put real trade-offs ahead of hype.','Shopping Editor')]
-    for name,slug,bio,title in staff:
-        db.execute('insert or ignore into authors(name,slug,bio,job_title) values(?,?,?,?)',(name,slug,bio,title))
-    author_ids={row['slug']:row['id'] for row in db.execute('select id,slug from authors')}
-    author_cycle=[s[1] for s in staff]
-    photos={'fashion':[('photo-1483985988355-763728e1935b','A tailored blazer styled over a simple outfit'),('photo-1490481651871-ab68de25d43d','Carefully chosen accessories laid out together'),('photo-1539109136881-3be0616acf4b','A street style look in natural daylight'),('photo-1529139574466-a303027c1d8b','A modern, considered fashion portrait'),('photo-1515886657613-9f3515b0c78f','A relaxed everyday outfit outdoors')],
-            'lifestyle':[('photo-1497366754035-f200968a6e72','A calm, light-filled home workspace'),('photo-1616486338812-3dadae4b4ace','Neutral-toned living room details'),('photo-1618220179428-7757a8c0b2f5','A welcoming modern home interior'),('photo-1600210492486-724fe5c67fb0','Understated home furnishings in soft light'),('photo-1616486029423-aaa4789e8c9a','Natural textures in a quiet interior')],
-            'travel':[('photo-1470770841072-f978cf4d019e','A quiet mountain lake beneath a wide sky'),('photo-1464822759023-fed622ff2c3b','Mountain peaks under clear daylight'),('photo-1500530855697-b586d89ba3ee','A traveler looking out over a landscape'),('photo-1488646953014-85cb44e25828','A city street ready to explore'),('photo-1501785888041-af3ef285b470','Still water beneath distant mountains'),('photo-1506126613408-eca07ce68773','A traveler walking through a sunlit old town')],
-            'beauty':[('photo-1608248543803-ba4f8c70ae0b','Simple skincare products in soft natural light'),('photo-1570172619644-dfd03ed5d881','A quiet, minimal self-care setting'),('photo-1596462502278-27bfdc403348','A curated makeup collection'),('photo-1522335789203-aabd1fc54bc9','A person applying makeup in natural light'),('photo-1612817288484-6f916006741a','Minimal beauty products arranged on a surface')],
-            'shopping':[('photo-1553062407-98eeb64c6a62','A practical travel backpack on display'),('photo-1542291026-7eec264c27ff','A pair of everyday athletic shoes'),('photo-1523275335684-37898b6baf30','A clean, classic wristwatch'),('photo-1526170375885-4d8ecf77b99f','A compact camera ready for a trip'),('photo-1491553895911-0055eca6402d','Well-made shoes viewed up close')],
-            'technology':[('photo-1518770660439-4636190af475','A close-up of modern circuit hardware'),('photo-1519389950473-47ba0277781c','A small team collaborating around laptops'),('photo-1516321318423-f06f85e504b3','A laptop used in a bright workspace'),('photo-1517336714731-489689fd1ca8','A laptop on a clean desk'),('photo-1517430816045-df4b7de11d1d','Technology hardware and accessories')],
-            'wellness':[('photo-1544367567-0f2fcb009e0b','A quiet moment of movement and stretching'),('photo-1506126613408-eca07ce68773','A person practicing mindfulness outdoors'),('photo-1571019613454-1cb2f99b2d8b','Movement and exercise in a sunlit studio'),('photo-1526506118085-60ce8714f8c5','A person preparing for a workout'),('photo-1518611012118-696072aa579a','A gentle yoga practice on a mat')]}
-    photo_index={name:0 for name in photos}
-    rng=random.Random(20261022)
-    now=datetime.now(timezone.utc)
-    for i,art in enumerate(ARTICLES):
-        if db.execute('select id from posts where slug=?',(art['slug'],)).fetchone():continue
-        cat=db.execute('select id from categories where slug=?',(art['category'],)).fetchone()
-        if not cat:continue
-        author_slug=author_cycle[i%len(author_cycle)]
-        author_id=author_ids.get(author_slug)
-        pool=photos.get(art['category'],photos['lifestyle'])
-        photo_id,default_alt=pool[photo_index.get(art['category'],0)%len(pool)]
-        photo_index[art['category']]=photo_index.get(art['category'],0)+1
-        image=f'https://images.unsplash.com/{photo_id}?auto=format&fit=crop&w=1200&q=82'
-        days_ago=rng.randint(5,182);hour=rng.randint(7,20);minute=rng.randint(0,59)
-        published_at=(now-timedelta(days=days_ago)).strftime('%Y-%m-%d')+f' {hour:02d}:{minute:02d}:00'
-        featured=1 if i%7==0 else 0
-        inserted=db.execute('insert into posts(title,slug,excerpt,body,status,author_id,category_id,featured,is_sample,seo_title,meta_description,featured_image,image_alt,image_caption,image_credit,created_at,updated_at,published_at) values(?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)',(art['title'],art['slug'],art['excerpt'],art['body'],'published',author_id,cat['id'],featured,art.get('seo_title',''),art.get('meta_description',''),image,art.get('image_alt',default_alt),art['excerpt'],'Unsplash',published_at,published_at,published_at))
-        post_id=inserted.lastrowid
-        for tag_name in art.get('tags',[]):
-            tag_slug=slugify(tag_name)
-            db.execute('insert or ignore into tags(name,slug) values(?,?)',(tag_name,tag_slug))
-            tag_id=db.execute('select id from tags where slug=?',(tag_slug,)).fetchone()['id']
-            db.execute('insert into post_tags(post_id,tag_id) values(?,?)',(post_id,tag_id))
 def main():
     initialize_site_data()
     threading.Thread(target=scheduler,daemon=True,name='scheduled-publisher').start()
