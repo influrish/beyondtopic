@@ -250,7 +250,7 @@ def _handle_request(environ,start_response):
                     if candidate['id'] not in {x['id'] for x in hero_stories}:hero_stories.append(candidate)
                 hero_ids=[x['id'] for x in hero_stories]
                 marks=','.join('?' for _ in hero_ids)
-                remaining=db.execute(f'select p.*,c.name category,a.name author,a.slug author_slug,a.photo_url author_photo from posts p left join categories c on c.id=p.category_id left join authors a on a.id=p.author_id where p.status="published" and p.id not in ({marks}) order by p.featured desc,p.published_at desc,p.id desc limit 8 offset ?',hero_ids+[offset]).fetchall()
+                remaining=db.execute(f"select p.*,c.name category,a.name author,a.slug author_slug,a.photo_url author_photo from posts p left join categories c on c.id=p.category_id left join authors a on a.id=p.author_id where p.status='published' and p.id not in ({marks}) order by p.featured desc,p.published_at desc,p.id desc limit 8 offset ?",hero_ids+[offset]).fetchall()
                 hero_html=story_hero_carousel(hero_stories)
                 total=max(0,total-len(hero_ids))
             else:
@@ -446,7 +446,7 @@ def pager(base,current,total,limit):
 def category_nav(db): return '<nav>'+''.join(f'<a href="/category/{quote(x["slug"])}">{esc(x["name"])}</a> ' for x in db.execute('select * from categories where parent_id is null and active=1 order by name'))+'</nav>'
 def category_section(db,c,heading=None):
     if not c:return ''
-    rows=db.execute('select p.*,c.name category,a.name author,a.slug author_slug,a.photo_url author_photo from posts p left join categories c on c.id=p.category_id left join authors a on a.id=p.author_id where p.category_id=? and p.status="published" order by p.published_at desc limit 5',(c['id'],)).fetchall()
+    rows=db.execute("select p.*,c.name category,a.name author,a.slug author_slug,a.photo_url author_photo from posts p left join categories c on c.id=p.category_id left join authors a on a.id=p.author_id where p.category_id=? and p.status='published' order by p.published_at desc limit 5",(c['id'],)).fetchall()
     if not rows:return ''
     title=heading or c['name']
     carousel_id='carousel-'+esc(c['slug'])
@@ -486,7 +486,7 @@ def page_view(db,path,page):
 def sitemap(db,start):
     setting=db.execute("select value from settings where key='seo.canonical_base'").fetchone()
     base=(setting['value'] if setting and setting['value'] else os.environ.get('BEYONDTOPIC_URL','http://localhost:8000')).rstrip('/')
-    paths=['/']+['/blog/'+x['slug'] for x in db.execute("select slug from posts where status='published' and noindex=0")]+['/page/'+x['slug'] for x in db.execute("select slug from pages where status='published' and noindex=0")]+['/category/'+x['slug'] for x in db.execute('select slug from categories where active=1')]+['/tag/'+x['slug'] for x in db.execute('select t.slug from tags t where exists(select 1 from post_tags pt join posts p on p.id=pt.post_id where pt.tag_id=t.id and p.status="published")')]+['/author/'+x['slug'] for x in db.execute('select a.slug from authors a where exists(select 1 from posts p where p.author_id=a.id and p.status="published")')]
+    paths=['/']+['/blog/'+x['slug'] for x in db.execute("select slug from posts where status='published' and noindex=0")]+['/page/'+x['slug'] for x in db.execute("select slug from pages where status='published' and noindex=0")]+['/category/'+x['slug'] for x in db.execute('select slug from categories where active=1')]+['/tag/'+x['slug'] for x in db.execute("select t.slug from tags t where exists(select 1 from post_tags pt join posts p on p.id=pt.post_id where pt.tag_id=t.id and p.status='published')")]+['/author/'+x['slug'] for x in db.execute("select a.slug from authors a where exists(select 1 from posts p where p.author_id=a.id and p.status='published')")]
     xml='<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+''.join(f'<url><loc>{esc(base+u)}</loc></url>' for u in paths)+'</urlset>'
     return response(start,xml,headers=[('Content-Type','application/xml; charset=utf-8')])
 def safe_external(url):
@@ -525,7 +525,7 @@ def posts_list(db,page,query,user,method='GET',form_data=None,csrf='',go=None,au
         states={'draft':'draft','publish':'published','archive':'archived','trash':'trashed'}
         if not ids or action not in states:return page('Choose stories and an action','<h1>Select at least one story and choose a valid action.</h1>',True,'400 Bad Request')
         state=states[action];marks=','.join('?' for _ in ids)
-        db.execute(f'update posts set status=?,published_at=case when ?="published" then coalesce(published_at,CURRENT_TIMESTAMP) else published_at end,trashed_at=case when ?="trashed" then CURRENT_TIMESTAMP else null end,updated_at=CURRENT_TIMESTAMP where id in ({marks})',(state,state,state,*ids));db.commit()
+        db.execute(f"update posts set status=?,published_at=case when ?='published' then coalesce(published_at,CURRENT_TIMESTAMP) else published_at end,trashed_at=case when ?='trashed' then CURRENT_TIMESTAMP else null end,updated_at=CURRENT_TIMESTAMP where id in ({marks})",(state,state,state,*ids));db.commit()
         if audit:audit('bulk update stories',f'{len(ids)} stories set to {state}')
         if go:return go('/admin/posts')
     where=[]; args=[]
@@ -589,7 +589,7 @@ def edit_post(db,path,method,f,user,csrf,page,go,audit):
         if rev:
             data=json.loads(rev['snapshot']);db.execute('begin immediate')
             category_id=data['category_id'] if data['category_id'] is None or db.execute('select id from categories where id=?',(data['category_id'],)).fetchone() else post['category_id']
-            db.execute('update posts set title=?,slug=?,excerpt=?,body=?,status=?,author_id=?,category_id=?,featured=?,affiliate_disclosure=?,seo_title=?,meta_description=?,scheduled_at=?,canonical_url=?,social_image=?,noindex=?,is_sample=?,featured_image=?,image_alt=?,image_caption=?,image_credit=?,updated_at=CURRENT_TIMESTAMP,trashed_at=case when ?="trashed" then CURRENT_TIMESTAMP else null end where id=?',(data['title'],data['slug'],data['excerpt'],data['body'],data['status'],data['author_id'],category_id,data['featured'],data['affiliate_disclosure'],data['seo_title'],data['meta_description'],data['scheduled_at'],data['canonical_url'],data['social_image'],data['noindex'],data.get('is_sample',0),data['featured_image'],data['image_alt'],data['image_caption'],data['image_credit'],data['status'],pid))
+            db.execute("update posts set title=?,slug=?,excerpt=?,body=?,status=?,author_id=?,category_id=?,featured=?,affiliate_disclosure=?,seo_title=?,meta_description=?,scheduled_at=?,canonical_url=?,social_image=?,noindex=?,is_sample=?,featured_image=?,image_alt=?,image_caption=?,image_credit=?,updated_at=CURRENT_TIMESTAMP,trashed_at=case when ?='trashed' then CURRENT_TIMESTAMP else null end where id=?",(data['title'],data['slug'],data['excerpt'],data['body'],data['status'],data['author_id'],category_id,data['featured'],data['affiliate_disclosure'],data['seo_title'],data['meta_description'],data['scheduled_at'],data['canonical_url'],data['social_image'],data['noindex'],data.get('is_sample',0),data['featured_image'],data['image_alt'],data['image_caption'],data['image_credit'],data['status'],pid))
             db.execute('delete from post_tags where post_id=?',(pid,))
             for name in data['tags']:
                 tag_slug=slugify(name);db.execute('insert or ignore into tags(name,slug) values(?,?)',(name,tag_slug));tag_id=db.execute('select id from tags where slug=?',(tag_slug,)).fetchone()[0];db.execute('insert or ignore into post_tags(post_id,tag_id) values(?,?)',(pid,tag_id))
@@ -611,9 +611,9 @@ def edit_post(db,path,method,f,user,csrf,page,go,audit):
                 snapshot={k:post[k] for k in ('title','slug','excerpt','body','status','author_id','category_id','featured','affiliate_disclosure','seo_title','meta_description','scheduled_at','canonical_url','social_image','noindex','is_sample','featured_image','image_alt','image_caption','image_credit')}
                 snapshot['tags']=[x['name'] for x in db.execute('select t.name from tags t join post_tags pt on pt.tag_id=t.id where pt.post_id=?',(post_id,))]
                 db.execute('insert into post_revisions(post_id,snapshot,editor) values(?,?,?)',(post_id,json.dumps(snapshot),user['username']))
-                db.execute('update posts set title=?,slug=?,excerpt=?,body=?,status=?,author_id=?,category_id=?,featured=?,affiliate_disclosure=?,seo_title=?,meta_description=?,scheduled_at=?,canonical_url=?,social_image=?,noindex=?,is_sample=?,featured_image=?,image_alt=?,image_caption=?,image_credit=?,updated_at=CURRENT_TIMESTAMP,published_at=case when ?="published" then coalesce(published_at,CURRENT_TIMESTAMP) else published_at end,trashed_at=case when ?="trashed" then CURRENT_TIMESTAMP else null end where id=?',params+(f.get('featured_image',''),f.get('image_alt',''),f.get('image_caption',''),f.get('image_credit',''),status,status,post_id))
+                db.execute("update posts set title=?,slug=?,excerpt=?,body=?,status=?,author_id=?,category_id=?,featured=?,affiliate_disclosure=?,seo_title=?,meta_description=?,scheduled_at=?,canonical_url=?,social_image=?,noindex=?,is_sample=?,featured_image=?,image_alt=?,image_caption=?,image_credit=?,updated_at=CURRENT_TIMESTAMP,published_at=case when ?='published' then coalesce(published_at,CURRENT_TIMESTAMP) else published_at end,trashed_at=case when ?='trashed' then CURRENT_TIMESTAMP else null end where id=?",params+(f.get('featured_image',''),f.get('image_alt',''),f.get('image_caption',''),f.get('image_credit',''),status,status,post_id))
             else:
-                inserted=db.execute('insert into posts(title,slug,excerpt,body,status,author_id,category_id,featured,affiliate_disclosure,seo_title,meta_description,scheduled_at,canonical_url,social_image,noindex,is_sample,featured_image,image_alt,image_caption,image_credit,published_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,case when ?="published" then CURRENT_TIMESTAMP else null end)',params+(f.get('featured_image',''),f.get('image_alt',''),f.get('image_caption',''),f.get('image_credit',''),status))
+                inserted=db.execute("insert into posts(title,slug,excerpt,body,status,author_id,category_id,featured,affiliate_disclosure,seo_title,meta_description,scheduled_at,canonical_url,social_image,noindex,is_sample,featured_image,image_alt,image_caption,image_credit,published_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,case when ?='published' then CURRENT_TIMESTAMP else null end)",params+(f.get('featured_image',''),f.get('image_alt',''),f.get('image_caption',''),f.get('image_credit',''),status))
                 post_id=inserted.lastrowid
             db.execute('delete from post_tags where post_id=?',(post_id,))
             for tag_name in [x.strip() for x in f.get('tags','').split(',') if x.strip()]:
@@ -699,7 +699,7 @@ def manage_pages(db,method,f,query,user,csrf,page,go,audit):
         try:
             if old:
                 db.execute('insert into page_revisions(page_id,snapshot,editor) values(?,?,?)',(edit_id,json.dumps({k:old[k] for k in ('title','slug','body','seo_title','meta_description','template','canonical_url','social_image','noindex','status')}), user['username']))
-                db.execute('update pages set title=?,slug=?,body=?,status=?,seo_title=?,meta_description=?,template=?,canonical_url=?,scheduled_at=?,social_image=?,noindex=?,updated_at=CURRENT_TIMESTAMP,trashed_at=case when ?="trashed" then CURRENT_TIMESTAMP else null end where id=?',(title,slug,f.get('body',''),status,f.get('seo_title',''),f.get('meta_description',''),f.get('template','general'),f.get('canonical_url',''),sched,f.get('social_image',''),bool_value(f,'noindex'),status,edit_id))
+                db.execute("update pages set title=?,slug=?,body=?,status=?,seo_title=?,meta_description=?,template=?,canonical_url=?,scheduled_at=?,social_image=?,noindex=?,updated_at=CURRENT_TIMESTAMP,trashed_at=case when ?='trashed' then CURRENT_TIMESTAMP else null end where id=?",(title,slug,f.get('body',''),status,f.get('seo_title',''),f.get('meta_description',''),f.get('template','general'),f.get('canonical_url',''),sched,f.get('social_image',''),bool_value(f,'noindex'),status,edit_id))
             else:db.execute('insert into pages(title,slug,body,status,seo_title,meta_description,template,canonical_url,scheduled_at,social_image,noindex) values(?,?,?,?,?,?,?,?,?,?,?)',(title,slug,f.get('body',''),status,f.get('seo_title',''),f.get('meta_description',''),f.get('template','general'),f.get('canonical_url',''),sched,f.get('social_image',''),bool_value(f,'noindex')))
             db.commit();audit('save page',title);return go('/admin/pages')
         except Exception as e:return page('Page save failed',f'<h1>Could not save page</h1><p>{esc(e)}</p>',True,'400 Bad Request')

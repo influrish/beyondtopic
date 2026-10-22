@@ -125,7 +125,10 @@ class TursoConnection:
             return TursoCursor([], [], 0, None)
         stmt = {'sql': sql, 'args': [_value_to_proto(p) for p in (params or ())], 'named_args': [], 'want_rows': True}
         body = self._request('v1/execute', {'stmt': stmt})
-        result = body.get('result', {})
+        if 'result' not in body:
+            error = body.get('error') or body.get('message') or body
+            raise TursoError(f'Turso did not return a result for statement {sql!r}: {error}')
+        result = body['result']
         cols = tuple(c.get('name') or '' for c in result.get('cols', []))
         rows = [[_value_from_proto(cell) for cell in row] for row in result.get('rows', [])]
         affected = result.get('affected_row_count', 0)
